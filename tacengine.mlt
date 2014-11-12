@@ -1,0 +1,42 @@
+(* -*- compile-command: "ocamlbuild -classic-display tacengine.pdf" -*- *)
+
+open Prelude
+
+let intro = "{emph"intro here"}"
+
+let milner = "{section"Milner's tactics"}"
+
+let monad = "{section"Monadic interface"}"
+
+let goals = "{section"Goalwise tactics"}"
+
+let d = concat [
+  intro;
+  milner;
+  monad;
+  goals;
+]
+
+
+let title = "Inside the design of a tactic system"
+
+let author = "Arnaud Spiwack"
+
+let packages = [
+  "inputenc" , "utf8" ;
+  "fontenc" , "T1" ;
+  "textcomp", "";
+  "microtype" , "" ;
+]
+
+let prelude = concat_with_sep [
+  command \"bibliographystyle\" [A,"plain"] A;] par
+
+let file = \"tacengine.tex\"
+
+let _ = emit ~file (document
+                             ~title
+                             ~author
+                             ~prelude
+                             ~packages
+                             d)
