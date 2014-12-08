@@ -1,6 +1,19 @@
 
 val cite : ?extra:Latex.t -> Latex.t -> Latex.t
 
+val upalpha : Latex.t
+val upbeta : Latex.t
+val upgamma : Latex.t
+val updelta : Latex.t
+val upepsilon : Latex.t
+val upeta : Latex.t
+val upiota : Latex.t
+val upmu : Latex.t
+val uppi : Latex.t
+val uprho : Latex.t
+val upsigma : Latex.t
+val upomega : Latex.t
+
 val concat_with_sep : Latex.t list -> Latex.t -> Latex.t
 
 val ae : Latex.t

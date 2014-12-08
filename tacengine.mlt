@@ -1,10 +1,41 @@
 (* -*- compile-command: "ocamlbuild -classic-display tacengine.pdf" -*- *)
 
 open Prelude
+open Ocamlmode
+
+##verbatim '#' = ocaml_code
+
+
 
 let intro = "{emph"intro here"}"
 
-let milner = "{section"Milner's tactics"}"
+let milner = "{section"Milner's tactics"}
+
+The interactive proof system which originally introduced the notion of tactic was {textsc"lcf"}~{cite"GordonMilner1979"} developed at the university of Edinburgh and, even though it has multiple authors, generally associated with Robin Milner's name. Tactics were, in fact, the main motivation for the introduction of the {textsc"ml"} language~{cite"Gordon1978"} (whose name stands for the initials of {emph"meta-language"}). The {textsc"ml"} language was used to reason about the logic {textsc"lcf"} (a logic dubbed PP$_{lambda}$), and the type of tactic is central in the design:
+{quote (array[`L;`C;`L] [
+  array_line["<#type proof#>" ; "<#=#>"; "<#thm list -> thm#>"];
+  array_line["<#type tactic#>"; "<#=#>"; "<#goal -> (goal list * proof)#>"];
+])}
+Crucially, the type <#thm#> is an abstract type, hence it can only be built using the rule of the logic which are provides as an abstract interface. The elements of type <#thm#> will therefore be actual theorems.
+
+A <#tactic#> is a way to apply a logical rule to a goal~--~which is the name interactive proof systems give to proof obligations~--~and reduce the proof of this goal to the proof of a list of new goals, which are called {emph"subgoals"}. In other words, the type reads: given a goal <#g#> , a tactic <#t#> is a procedure wich, given a proof for each goal in <#fst (t g)#> yields a proof of <#g#>.
+
+As an illustration, let us give a concrete implementation of a natural deduction system for minimal logic using Milner tactics:
+{let identity = Infer.rule [] ${gamma_},A{vdash}A$  ~label:"(id)" in
+ let intro    = Infer.rule [${gamma_},A{vdash}B$] ${gamma_}{vdash}A{rightarrow}B$ ~label:"(intro)" in
+ let elim     = Infer.rule [${gamma_}{vdash}A{rightarrow}B$;${gamma_}{vdash}A$] ${gamma_}{vdash}B$ ~label:"(elim)" in
+ displaymath (array [`C;`C] [
+   array_line ~layout:[2,`C] ~sep:(`Mm 3.) [ identity ];
+   array_line [ intro ; elim ];
+ ])}
+In this system the goals would be sequents:
+{quote (array[`L;`C;`L] [
+  array_line["<#type formula#>";"";"<#(*a type of formulae is assumed*)#>"];
+  array_line["<#type context#>" ; "<#=#>"; "<#formula list#>"];
+  array_line["<#type tactic#>"; "<#=#>"; "<#goal -> (goal list * proof)#>"];
+])}
+
+"
 
 let monad = "{section"Monadic interface"}"
 
@@ -15,6 +46,7 @@ let d = concat [
   milner;
   monad;
   goals;
+  command \"bibliography\" [A,"library"] A;
 ]
 
 

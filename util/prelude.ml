@@ -7,6 +7,18 @@ let cite ?extra t =
   in
   command "cite" ?opt [T,t] T
 
+let upalpha = command "upalpha" ~packages:["upgreek",""] [] M
+let upbeta = command "upbeta" ~packages:["upgreek",""] [] M
+let upgamma = command "upgamma" ~packages:["upgreek",""] [] M
+let updelta = command "updelta" ~packages:["upgreek",""] [] M
+let upepsilon =  command "upepsilon" ~packages:["upgreek",""] [] M
+let upeta = command "upeta" ~packages:["upgreek",""] [] M
+let upiota = command "upiota" ~packages:["upgreek",""] [] M
+let upmu = command "upmu" ~packages:["upgreek",""] [] M
+let uppi = command "uppi" ~packages:["upgreek",""] [] M
+let uprho = command "uprho" ~packages:["upgreek",""] [] M
+let upsigma = command "upsigma" ~packages:["upgreek",""] [] M
+let upomega = command "upomega" ~packages:["upgreek",""] [] M
 
 let concat_with_sep l sep =
   if l = [] then
