@@ -28,12 +28,126 @@ As an illustration, let us give a concrete implementation of a natural deduction
    array_line ~layout:[2,`C] ~sep:(`Mm 3.) [ identity ];
    array_line [ intro ; elim ];
  ])}
-In this system the goals would be sequents:
+In this system the type of formulae would be:
+{quote 
+  "<#type formula =
+  | Atom of atom(*a type of atoms is assumed*)
+  | Impl of formula*formula#>"
+}
+and the goals would be sequents:
 {quote (array[`L;`C;`L] [
-  array_line["<#type formula#>";"";"<#(*a type of formulae is assumed*)#>"];
+  (* array_line["<#type formula#>";"<#=#>";""]; *)
+  (* array_line["<#| Atom#>";"<#of#>";"<#atom (\*a type of atoms is assumed*\)#>"]; *)
+  (* array_line["<#| Impl#>";"<#of#>";"<#formula*formula#>"]; *)
   array_line["<#type context#>" ; "<#=#>"; "<#formula list#>"];
-  array_line["<#type tactic#>"; "<#=#>"; "<#goal -> (goal list * proof)#>"];
+  array_line["<#type goal#>"; "<#=#>"; "<#context*formula#>"];
 ])}
+With these types we can implement the interface:
+{quote
+"<#module Tactic : sig
+  type thm
+  type proof = thm list -> thm
+  type tactic = goal -> (goal list * proof)
+
+  val id : tactic
+  val intro : tactic
+  val elim : tactic
+end#>"
+}
+Here is the full implementation:
+{quote
+"<#module Tactic = struct
+  type thm = goal
+  type proof = thm list -> thm
+  type tactic = goal -> (goal list * proof)
+
+  let id_proof g = function
+    | []  -> g
+    | _ -> failwith "Incorrect use of id rule"
+  let id (gamma,c) =
+    if List.mem c gamma then ([] , id_proof (gamma,c))
+    else failwith "Not an assumption"
+
+  let intro_proof = function
+    | [(a::gamma,b)] -> (gamma,Impl(a,b))
+    | _ -> failwith "Incorrect use of the intro rule"
+  let intro = function
+    | (gamma,Impl(a,b)) -> ([(a::gamma,b)] , intro_proof)
+    | _ -> failwith "Not an implication"
+
+  let elim_proof = function
+    | [(gamma,Impl(a,b));(gamma,a')] when a=a' -> (gamma,b)
+    | _ -> failwith "Incorrect use of the application rule"
+  let elim a (gamma,b) =
+    ([(gamma,Impl(a,b));(gamma,a)] , elim_proof]
+end#>"
+}
+
+(* arnaud: j'utilise le terme validation ici, sans l'introduire *)
+The three rules of the logic are reflected as three tactics. Tactics are not, however, restricted to the basic rules of the logics: they can be combined into tactics which apply several rules, or even that apply different rules dependending on the goal. Hence tactics correspond to partial proofs in minimal logic. A tactic <#t#> such that <#t g#> yields an empty list of subgoals is, therefore a proof of <#g#>. This is true, at least, when <#snd (t g) []#> succeeds and return a theorem for <#g#>. The validation step of <#t g#> could fail in two ways: the tactics can be manipulated to return a theorem for another goal, or validations could be combined improperly and fail.
+
+To make sure the tactics we build are correct, we can build them out of sound combinators called {emph"tacticals"}:(* arnaud: expliquer leur r^ole, tclTHEN n'est pas termin'e *)
+{quote"<#module Tacticals : sig
+  val nop : tactic
+  val (<*>) : tactic -> tactic -> tactic
+
+  val fail : tactic
+  val (||) : tactic -> tactic -> tactic
+
+  val ttry : tactic -> tactic
+  val repeat : tactic -> tactic
+end#>"}
+{quote"<#module Tacticals = struct
+  let nop_proof = function
+    | [thm] -> thm
+    | _ -> failwith "Incorrect use of the nop tactical"
+  let nop g = ([g] , nop_proof)
+
+  let (<*>) t1 t2 g =
+    let (gs,pr) = t1 g in
+    let (gss,prs) = List.split (list.map t2 gs) in
+    ...
+
+
+  let fail g = failwith "Tactic failure"
+
+  let (||) t1 t2 g =
+    try t1 g
+    with _ -> t2 g
+
+  let ttry t = t || nop
+
+  let repeat t g =
+    match
+      try Some (t g)
+      with _ -> None
+    with
+    | Some gp -> ((fun _ -> gp) <*> repeat t) g
+    | None -> nop
+end#>"}
+
+Proof of $A{rightarrow_}(A{rightarrow_}B){rightarrow_}B$.
+{let left =
+   $A,A{rightarrow_}B{vdash}A{rightarrow_}B$ |>
+   Infer.rule ~label:"(id)" []
+ in
+ let right =
+   $A,A{rightarrow_}B{vdash}A$ |>
+   Infer.rule ~label:"(id)" []
+ in
+ displaymath begin
+  ${vdash}A{rightarrow_}(A{rightarrow_}B){rightarrow_}B$ |>
+  Infer.rule ~label:"(intro)" [
+    $A{vdash}(A{rightarrow_}B){rightarrow_}B$ |>
+    Infer.rule ~label:"(intro)"
+    [$A,A{rightarrow_}B{vdash}B$ |>
+    Infer.rule ~label:"(elim)"
+    [left;right]]
+  ]
+      
+end}
+
+Tautology solver.
 
 "
 
