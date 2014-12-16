@@ -22,23 +22,23 @@ A <#tactic#> is a way to apply a logical rule to a goal~--~which is the name int
 
 As an illustration, let us give a concrete implementation of a natural deduction system for minimal logic using Milner tactics:
 {let identity = Infer.rule [] ${gamma_},A{vdash}A$  ~label:"(id)" in
- let intro    = Infer.rule [${gamma_},A{vdash}B$] ${gamma_}{vdash}A{rightarrow}B$ ~label:"(intro)" in
- let elim     = Infer.rule [${gamma_}{vdash}A{rightarrow}B$;${gamma_}{vdash}A$] ${gamma_}{vdash}B$ ~label:"(elim)" in
+ let weaken = Infer.rule [${gamma_}{vdash}B$] ${gamma_},A{vdash}B$ ~label:"(weak)" in
+ let intro    = Infer.rule [${gamma_},A{vdash}B$] ${gamma_}{vdash}A{rightarrow_}B$ ~label:"(intro)" in
+ let elim     = Infer.rule [${gamma_}{vdash}A{rightarrow_}B$;${gamma_}{vdash}A$] ${gamma_}{vdash}B$ ~label:"(elim)" in
  displaymath (array [`C;`C] [
-   array_line ~layout:[2,`C] ~sep:(`Mm 3.) [ identity ];
+   array_line ~sep:(`Mm 3.) [ identity ; weaken ];
    array_line [ intro ; elim ];
  ])}
+The weakening rule is not necessary as it is implied by the identity rule. However, it is the only rule which makes it possible to have fewer formulae in the upper sequent than in the lower one. We will make use of this fact when encoding compound rules later.
+
 In this system the type of formulae would be:
 {quote 
   "<#type formula =
-  | Atom of atom(*a type of atoms is assumed*)
+  | Atom of atom (*a type of atoms is assumed*)
   | Impl of formula*formula#>"
 }
 and the goals would be sequents:
 {quote (array[`L;`C;`L] [
-  (* array_line["<#type formula#>";"<#=#>";""]; *)
-  (* array_line["<#| Atom#>";"<#of#>";"<#atom (\*a type of atoms is assumed*\)#>"]; *)
-  (* array_line["<#| Impl#>";"<#of#>";"<#formula*formula#>"]; *)
   array_line["<#type context#>" ; "<#=#>"; "<#formula list#>"];
   array_line["<#type goal#>"; "<#=#>"; "<#context*formula#>"];
 ])}
@@ -50,11 +50,12 @@ With these types we can implement the interface:
   type tactic = goal -> (goal list * proof)
 
   val id : tactic
+  val weak : int -> tactic
   val intro : tactic
-  val elim : tactic
+  val elim : formula -> tactic
 end#>"
 }
-Here is the full implementation:
+Here is the full implementation:(* arnaud: 'ecrire les fonctions avec du pattern-matching non-exhaustif *)
 {quote
 "<#module Tactic = struct
   type thm = goal
@@ -67,6 +68,26 @@ Here is the full implementation:
   let id (gamma,c) =
     if List.mem c gamma then ([] , id_proof (gamma,c))
     else failwith "Not an assumption"
+
+  let remove i l =
+    let r = ref [] in
+    let x = ref None in
+    List.iteri (fun j a -> if j<>i then r := a::!r else x := Some a) l;
+    (!x , List.rev !r)
+
+  let add i x l =
+    match i with
+    | 0 -> x::l
+    | _ ->
+      let r = ref [] in
+      List.iteri (fun j a -> r := a::!r ; if j=i-1 then r := x::!r) l;
+      List.rev !r
+
+  let weak_proof a [(gamma,b)] =
+    (add i a gamma , b)
+  let weak n (gamma,a) =
+    let (Some b,gamma') = remove i gamma in
+    ( (gamma',c) , weak_proof b )
 
   let intro_proof = function
     | [(a::gamma,b)] -> (gamma,Impl(a,b))
@@ -86,10 +107,12 @@ end#>"
 (* arnaud: j'utilise le terme validation ici, sans l'introduire *)
 The three rules of the logic are reflected as three tactics. Tactics are not, however, restricted to the basic rules of the logics: they can be combined into tactics which apply several rules, or even that apply different rules dependending on the goal. Hence tactics correspond to partial proofs in minimal logic. A tactic <#t#> such that <#t g#> yields an empty list of subgoals is, therefore a proof of <#g#>. This is true, at least, when <#snd (t g) []#> succeeds and return a theorem for <#g#>. The validation step of <#t g#> could fail in two ways: the tactics can be manipulated to return a theorem for another goal, or validations could be combined improperly and fail.
 
-To make sure the tactics we build are correct, we can build them out of sound combinators called {emph"tacticals"}:(* arnaud: expliquer leur r^ole, tclTHEN n'est pas termin'e *)
+To make sure the tactics we build are correct, we can build them out of sound combinators called {emph"tacticals"}:(* arnaud: expliquer leur r^ole, tclTHEN n'est pas termin'e. tclTHENLIST n'est pas commenc'e*)
 {quote"<#module Tacticals : sig
   val nop : tactic
   val (<*>) : tactic -> tactic -> tactic
+
+  val (</>) : tactic -> tactic -> tactic
 
   val fail : tactic
   val (||) : tactic -> tactic -> tactic
@@ -103,9 +126,12 @@ end#>"}
     | _ -> failwith "Incorrect use of the nop tactical"
   let nop g = ([g] , nop_proof)
 
+  let (</>) t2 tl g =
+    ...
+
   let (<*>) t1 t2 g =
     let (gs,pr) = t1 g in
-    let (gss,prs) = List.split (list.map t2 gs) in
+    let (gss,prs) = List.split (List.map t2 gs) in
     ...
 
 
@@ -126,7 +152,7 @@ end#>"}
     | None -> nop
 end#>"}
 
-Proof of $A{rightarrow_}(A{rightarrow_}B){rightarrow_}B$.
+With this material we can write proofs using Milner tactic, for instance the following proof:
 {let left =
    $A,A{rightarrow_}B{vdash}A{rightarrow_}B$ |>
    Infer.rule ~label:"(id)" []
@@ -146,8 +172,111 @@ Proof of $A{rightarrow_}(A{rightarrow_}B){rightarrow_}B$.
   ]
       
 end}
+Can be written:(* arnaud: impl'ementer en caml, donner la trace *)
+{quote"<#intro<*>intro<*>elim a</>[id;id]#>"}
 
-Tautology solver.
+{displaymath begin
+  Infer.rule [${gamma_},B{vdash}C$ ; ${gamma_}{vdash}A$]
+    ${gamma_},A{rightarrow_}B{vdash}C$
+end}
+
+Compound tactics need not solve the goal, however. We can, for instance, implement the following two left-introduction rules (which, together, are equivalent to the elimination rule of implication).
+{let left1 = Infer.rule
+   [${gamma_},A,B{vdash}C$ ; "$A$ is an atom"]
+    ${gamma_},A,A{rightarrow_}B{vdash}C$ ~label:"(left$_1$)" in
+ let left2 = Infer.rule
+   [${gamma_},B{rightarrow_}C{vdash}A{rightarrow_}B$;
+    ${gamma_},C{vdash}D$]
+   ${gamma_},(A{rightarrow_}B){rightarrow_}C{vdash}D$ ~label:"(left$_2$)" in
+ displaymath begin
+  array [`C;`C] [
+    array_line [left1;left2];
+  ]
+
+end}
+whose respective proofs are
+{displaymath begin
+  let id = Infer.rule [] ~label:"(id)" in
+  let proofb =
+    ${gamma_},A,A{rightarrow_}B{vdash}B$ |>
+    Infer.rule ~label:"(elim)"
+    [${gamma_},A,A{rightarrow_}B{vdash}A{rightarrow_}B$ |> id;
+     ${gamma_},A,A{rightarrow_}B{vdash}A$ |> id;]
+  in
+  ${gamma_},A,A{rightarrow_}B{vdash}C$ |>
+   Infer.rule ~label:"(elim)"
+   [${gamma_},A,A{rightarrow_}B{vdash}B{rightarrow_}C$ |>
+    Infer.rule ~label:"(intro)"
+    [${gamma_},A,A{rightarrow_}B,B{vdash}C$ |>
+     Infer.rule ~label:"(weak)"
+     [${gamma_},A,B{vdash}C$]]
+   ;proofb]
+end}
+and
+{tiny @@ displaymath begin
+  let id = Infer.rule [] ~label:"(id)" in
+  let proofd =
+    ${gamma_},(A{rightarrow_}B){rightarrow_}C{vdash}(A{rightarrow_}B){rightarrow_}D$ |>
+    Infer.rule ~label:"(intro)"
+    [${gamma_},(A{rightarrow_}B){rightarrow_}C,A{rightarrow_}B{vdash}D$ |>
+     Infer.derived ~label:(emph"as above")
+     [${gamma_},C,A{rightarrow_}B{vdash}D$ |>
+      Infer.rule ~label:"(weak)"
+       [${gamma_},C{vdash}D$]]]
+  in
+  let proofbc =
+    ${gamma_},(A{rightarrow_}B){rightarrow_}C{vdash}B{rightarrow_}C$ |>
+    Infer.rule ~label:"(intro)"
+    [${gamma_},(A{rightarrow_}B){rightarrow_}C,B{vdash}C$ |>
+     Infer.rule ~label:"(elim)"
+    [${gamma_},(A{rightarrow_}B){rightarrow_}C,B{vdash}(A{rightarrow_}B){rightarrow_}C$ |> id
+    ;${gamma_},(A{rightarrow_}B){rightarrow_}C,B{vdash}A{rightarrow_}B$ |>
+     Infer.rule ~label:"(intro)"
+    [${gamma_},(A{rightarrow_}B){rightarrow_}C,B,A{vdash}B$ |> id]]]
+  in
+  let proofab =
+    ${gamma_},(A{rightarrow_}B){rightarrow_}C{vdash}A{rightarrow_}B$ |>
+    Infer.rule ~label:"(elim)"
+    [${gamma_},(A{rightarrow_}B){rightarrow_}C{vdash}(B{rightarrow_}C){rightarrow_}(A{rightarrow_}B)$ |>
+     Infer.rule ~label:"(intro)"
+    [${gamma_},(A{rightarrow_}B){rightarrow_}C,B{rightarrow_}C{vdash}A{rightarrow_}B$ |>
+     Infer.rule ~label:"(weak)"
+    [${gamma_},B{rightarrow_}C{vdash}A{rightarrow_}B$]]
+    ;proofbc]
+  in
+  ${gamma_},(A{rightarrow_}B){rightarrow_}C{vdash}D$ |>
+  Infer.rule ~label:"(elim)"
+  [proofd;proofab]
+end}
+
+Since these rules are applied to hypotheses of distinct shapes (the ``argument'' of the left$_1$ rule is only the implication hypothesis, the rule will fail, however, if the second hypothesis is not present), we can turn the two rules into a single tactic:
+{quote
+"<#let push n (gamma,_) =
+  let Impl(a,b) = List.nth gamma n in
+  elim b </> [intro<*>weak (n+1);elim a</>[id;id]]
+
+let left n (gamma,_) =
+  match List.nth gamma n with
+  | Impl(Atom _,_) -> push n
+  | Impl(Impl(a,b),c) ->
+      elim (Impl(a,b)) </> [
+        intro<*>apply (n+1)<*>weak 0;
+        elim (Impl(b,c)) </> [
+          intro<*>weak(n+1);
+          intro<*>elim (Impl(a,b))</>[id;intro<*>id]
+        ]
+      ]#>"
+}
+
+So far, we have used only sequencing tacticals because we knew the (partial) proofs we wanted to encode. But the strength of tacticals is to be able to define proof search strategies using the control tacticals. Using the right and left introduction rules for implication (and the identity rule) we can write a simple decision procedure for minimal propositional logic (<#tauto#> is $eta$-expanded to ensure that recursion is well-defined)):
+{quote
+"<#let rec tauto g =
+  let simplify = repeat (id||intro) in
+  let all_left = List.mapi (fun i _ -> left i<*>tauto) l in
+  let decide = List.fold_right (fun a t -> a||t) all_left (fail"Unprovable") in
+  (simplify<*>decide) g
+  #>"
+}
 
 "
 
