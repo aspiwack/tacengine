@@ -1,4 +1,6 @@
 
+(** thin space *)
+val ts : Latex.t
 val cite : ?extra:Latex.t -> Latex.t -> Latex.t
 
 val upalpha : Latex.t

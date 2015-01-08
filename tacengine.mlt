@@ -6,12 +6,17 @@ open Ocamlmode
 ##verbatim '#' = ocaml_code
 
 
+(* labels *)
+
+let s_goals = label ~name:\"s:goals\" ()
+
+(*/labels *)
 
 let intro = "{emph"intro here"}"
 
 let milner = "{section"Milner's tactics"}
 
-The interactive proof system which originally introduced the notion of tactic was {textsc"lcf"}~{cite"GordonMilner1979"} developed at the university of Edinburgh and, even though it has multiple authors, generally associated with Robin Milner's name. Tactics were, in fact, the main motivation for the introduction of the {textsc"ml"} language~{cite"Gordon1978"} (whose name stands for the initials of {emph"meta-language"}). The {textsc"ml"} language was used to reason about the logic {textsc"lcf"} (a logic dubbed PP$_{lambda}$), and the type of tactic is central in the design:
+The interactive proof system which originally introduced the notion of tactic was {textsc"lcf"}~{cite"GordonMilner1979"} developed at the university of Edinburgh and, even though it has multiple authors, generally associated with Robin Milner's name. Tactics were, in fact, the main motivation for the introduction of the {textsc"ml"} language~{cite"Gordon1978"} (whose name stands for the initials of {emph"meta-language"}). The {textsc"ml"} language was used to reason about the logic {textsc"lcf"} (a logic dubbed PP$_{lambda}$), and the type of tactic is central in the design:(* arnaud: make it clear que ml a 'et'e con,cu pour ,ca *)
 {quote (array[`L;`C;`L] [
   array_line["<#type proof#>" ; "<#=#>"; "<#thm list -> thm#>"];
   array_line["<#type tactic#>"; "<#=#>"; "<#goal -> (goal list * proof)#>"];
@@ -175,11 +180,6 @@ end}
 Can be written:(* arnaud: impl'ementer en caml, donner la trace *)
 {quote"<#intro<*>intro<*>elim a</>[id;id]#>"}
 
-{displaymath begin
-  Infer.rule [${gamma_},B{vdash}C$ ; ${gamma_}{vdash}A$]
-    ${gamma_},A{rightarrow_}B{vdash}C$
-end}
-
 Compound tactics need not solve the goal, however. We can, for instance, implement the following two left-introduction rules (which, together, are equivalent to the elimination rule of implication).
 {let left1 = Infer.rule
    [${gamma_},A,B{vdash}C$ ; "$A$ is an atom"]
@@ -278,11 +278,92 @@ So far, we have used only sequencing tacticals because we knew the (partial) pro
   #>"
 }
 
+(* arnaud: parler des compilos de Plotkin, des lenses, de Dialectica/dePaiva *)
+(* arnaud: parler des propri'et'es alg'ebriques? *)
+(* arnaud: donner un exemple de la proc'edure de d'ecision *)
+
+{subsection"First order \& unification"}
+
+Milner's tactics assume, by construction, that goals are independent from one another and that solving one goal does not affect the resolution of another. This assumption fails as soon as one considers first-order logic and tries to write automated decision procedures for it.
+
+Indeed, let us consider the introduction rule for the existential quantifier in natural deduction:
+{displaymath begin
+  ${gamma_}{vdash}{exists}x.{ts}P{ts}x$ |>
+  Infer.rule [${gamma_}{vdash}P{ts}t$]
+end}
+This rule is compatible with the independence of goal, but is not practical for proof search: constraints on the term $t$ are not available at the time where the rule is applied. Instead, proof search engines use a rule like:
+{displaymath begin
+  ${gamma_}{vdash}{exists}x.{ts}P{ts}x$ |>
+  Infer.rule [${gamma_}{vdash}P{ts}?x$]
+end}
+Where $?x$ is a variable of a new kind called {emph"unification variables"} or {emph"existential variables"}. Existential variables are placeholders in first-order terms which stand for unspecified subterms. Finding appropriate instances for these subterms is done by unification using constraints gathered throughout the proof.
+
+Introduction of existential variables in a proof system breaks the assumption that goals are independents. This can be seen in the following proof scheme:
+{displaymath begin
+  ${gamma_}{vdash}{exists}x.{ts}P{ts}x{land_}Q{ts}x$ |>
+  Infer.rule [
+    ${gamma_}{vdash}P{ts}?x{land_}Q{ts}?x$ |>
+    Infer.rule [
+    ${gamma_}{vdash}P{ts}?x$ |>
+      Infer.rule [${pi}_1$];
+    ${gamma_}{vdash}Q{ts}?x$ |>
+      Infer.rule [${pi}_2$];
+    ]
+  ]
+end}
+In the sub-proofs ${pi}_1$ and ${pi}_2$, the existential variable $?x$ stands for the same term. It means that any choice of term (or any constraint) for $?x$ in ${pi}_1$ impacts what rules are applicable in ${pi}_2$ and {emph"vice versa"}.
+
+It is possible to remedy this without veering away from Milner's style too much. For instance the Coq proof assistant used, for many years, a type such as this one:
+{quote (array[`L;`C;`L] [
+  array_line["<#type proof#>" ; "<#=#>"; "<#thm list -> thm#>"];
+  array_line["<#type tactic#>"; "<#=#>"; "<#goal * state -> (goal list * state * proof)#>"];
+])}
+Where a state containing the gather constraints (and typing information for existential variables, since Coq is a typed logic) is threaded in state-passing style. The trained eye will already have realised that this updated tactic type is the same as Milner's one but written in the state monad (or, more accurately, in its Kleisli category). Implementing the tacticals for this new type is therefore just a matter of replacing <#let#>-s by binds and list combinators by their monadic equivalents.
+
+Doing so, however, loses an important property of Milner-style tacticals: namely, that the <#(<*>)#> tactical is associative. Indeed, suposing that the tactics <#a#> and <#b#> produce two subgoals each, the tactic <#a<*>(b<*>c)#> is equivalent, by definition, to <#a</>[b</>[c;c];b</>[c;c]]#> whereas <#(a<*>b)<*>c#> is equivalent to <#a</>[b;b]</>[c;c;c;c]#>. With unification now acting as a global effect in the interactive proof procedure, effects will not occur in the same order in both tactics: in our example, the second <#b#> can access the constraints added by the two first <#c#> in the first version but not in the second one.
 "
 
-let monad = "{section"Monadic interface"}"
+let monad = "{section"Monadic interface"}
 
-let goals = "{section"Goalwise tactics"}"
+The shortcomings of the stateful version of Milner's tactic suggests that instead of focusing first on solving goals, we should first concentrate on how tactics compose and return later (in Section~{ref_ s_goals}) to goals. This section will, hence, be dedicated to tactic composition. Similar thoughts to those were instrumental in the making of the Isabelle proof assistant~{cite"Paulson1990"} and the Matita proof assistant~{cite"Asperti2009"}.
+
+The starting point of this section is the combination of two insights. The first one is that there are no particular reason for tactics to manipulate goals one at a time. The case for taking all of the available goals rather than a single one is made quite convincingly by~{cite"Asperti2009"}:
+{quote"[C]onsider two goals generated by a transitivity law:
+ ${gamma_}{vdash}a{leq}?x$ and ${gamma_}{vdash}?x{leq}b$. Here $?x$ stands
+ for the intermediate (still unknown) term $c$ that makes proving
+ ${gamma_}{vdash}a{leq}c$ and ${gamma_}{vdash}c{leq}b$ easier
+ than proving ${gamma_}{vdash}a{leq}b$. If a tactic (especially an
+ automatic one) has a local view over the set of
+ open conjectures ({emph"i.e."} knows just the goal
+ ${gamma_}{vdash}a {leq}?x$), it is unlikely to find an instantiation for
+ $?x$ that makes proving ${gamma_}{vdash}?x{leq}b$ simpler or even possible
+ (think for example to the trivial but
+  useless solution $?x := a$ that is obtained proving the first goal
+  with the reflexive property of {leq})."
+}
+
+Taking this observation to heart, we can change the type of Milner's tactic to take a list of goals as input rather than a single goal:
+{quote (array[`L;`C;`L] [
+  array_line["<#type proof#>" ; "<#=#>"; "<#thm list -> thm#>"];
+  array_line["<#type tactic#>"; "<#=#>"; "<#goal list * state -> (goal list * state * proof)#>"];
+])}
+The first virtue of this changed type is that it makes it possible to recover an associative definition of <#(<*>)#> despite the effects. An other advantage of this type is that <#goal list#> always appears alongside the unification state. So that <#goal list * state#> can made into a single type which we will called the proof state (and abusing the notation, write <#state#> as well). The type of tactics now becomes:
+{quote (array[`L;`C;`L] [
+  array_line["<#type proof#>" ; "<#=#>"; "<#thm list -> thm#>"];
+  array_line["<#type tactic#>"; "<#=#>"; "<#state -> (state * proof)#>"];
+])}
+
+The second insight is easier to see from the point of view of dependent type theory where proof terms and first order terms are one and the same. The remark is that the type <#proof#> is a functional representation of a partial proof, {emph"i.e."} of a term with holes. Since we have existential variable to deal with quantifiers, there is already a more first-order notion of terms with holes. Therefore we can reuse this representation and used as partial proof a term with one existential variable per generated subgoal.
+
+To be able to combine such terms to generate larger partial proofs or complete proofs in tactics, the easiest way is to have the existential variables of the partial proof be part of the unification state. So that goals are identified with existential variables and that giving a partial solution to a goal consists of assigning a term to its corresponding existential variable. With that in mind, giving a partial solution to the goal becomes just another instance of updating the state, and the type of tactics becomes:
+{quote (array[`L;`C;`L] [
+  array_line["<#type tactic#>"; "<#=#>"; "<#state -> state#>"];
+])}
+
+These two remarks have turned the type of tactic from a very clever and meaningful type into a boring an practically useless type without any reference to the logic. This happens to be an improvement, as it will allow us to fulfil the stated objective of this section: focus on composition.
+"
+
+let goals = "{section"Goalwise tactics" ~label:s_goals}"
 
 let d = concat [
   intro;
@@ -305,6 +386,9 @@ let packages = [
 ]
 
 let prelude = concat_with_sep [
+  usepackage "hyperref";
+  text\"\\\\let\\\\oldampersand\\\\&\";
+  text\"\\\\renewcommand*\\\\&{{\\\\itshape\\\\oldampersand}}\";
   command \"bibliographystyle\" [A,"plain"] A;] par
 
 let file = \"tacengine.tex\"

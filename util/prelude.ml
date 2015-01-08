@@ -1,5 +1,6 @@
 open Latex
 
+let ts = text"\\,"
 let cite ?extra t =
   let opt = match extra with
     | None -> None
