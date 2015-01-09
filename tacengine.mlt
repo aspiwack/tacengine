@@ -9,6 +9,7 @@ open Ocamlmode
 (* labels *)
 
 let s_goals = label ~name:\"s:goals\" ()
+let s_implem = label ~name:\"s:implem\" ()
 
 (*/labels *)
 
@@ -323,7 +324,7 @@ Where a state containing the gather constraints (and typing information for exis
 Doing so, however, loses an important property of Milner-style tacticals: namely, that the <#(<*>)#> tactical is associative. Indeed, suposing that the tactics <#a#> and <#b#> produce two subgoals each, the tactic <#a<*>(b<*>c)#> is equivalent, by definition, to <#a</>[b</>[c;c];b</>[c;c]]#> whereas <#(a<*>b)<*>c#> is equivalent to <#a</>[b;b]</>[c;c;c;c]#>. With unification now acting as a global effect in the interactive proof procedure, effects will not occur in the same order in both tactics: in our example, the second <#b#> can access the constraints added by the two first <#c#> in the first version but not in the second one.
 "
 
-let monad = "{section"Monadic interface"}
+let monad = "{section"Combining interface"}
 
 The shortcomings of the stateful version of Milner's tactic suggests that instead of focusing first on solving goals, we should first concentrate on how tactics compose and return later (in Section~{ref_ s_goals}) to goals. This section will, hence, be dedicated to tactic composition. Similar thoughts to those were instrumental in the making of the Isabelle proof assistant~{cite"Paulson1990"} and the Matita proof assistant~{cite"Asperti2009"}.
 
@@ -361,9 +362,86 @@ To be able to combine such terms to generate larger partial proofs or complete p
 ])}
 
 These two remarks have turned the type of tactic from a very clever and meaningful type into a boring an practically useless type without any reference to the logic. This happens to be an improvement, as it will allow us to fulfil the stated objective of this section: focus on composition.
+
+{subsection"Action monoids"}
+
+Let us recall that a semi-ring is the data of operations {cdot}, $1$, $+$, and $0$ such that:
+{displaymath begin array [`L;`R;`C;`L;`L] [
+  array_line ~layout:[5,`L] [textbf"Associativity laws"];
+  array_line ["";$a{cdot}(b{cdot}c)$;$=$;$(a{cdot}b){cdot}c$; "({cdot}-associativity)"];
+  array_line ["";$1{cdot}a$;$=$;$a$;"($1$-left-neutrality)"];
+  array_line ["";$a{cdot}1$;$=$;$a$;"($1$-right-neutrality)"];
+  array_line ["";$a+(b+c)$;$=$;$(a+b)+c$; "(+-associativity)"];
+  array_line ["";$0+a$;$=$;$a$;"($0$-left-neutrality)"];
+  array_line ["";$a+0$;$=$;$a$;"($0$-right-neutrality)"];
+  array_line ~layout:[5,`L] [textbf"Commutativity law"];
+  array_line ["";$a+b$;$=$;$b+a$; "(+-commutativity)"];
+  array_line ~layout:[5,`L] [textbf"Distributivity law"];
+  array_line ["";$a{cdot}(b+c)$; $=$; $a{cdot}b+a{cdot}c$; "(right-distributivity)"];
+  array_line ["";$a{cdot}0$; $=$; $0$; "(right-absorption)"];
+  array_line ["";$(b+c){cdot}a$; $=$; $b{cdot}a+c{cdot}a$; "(left-distributivity)"];
+  array_line ["";$0{cdot}a$; $=$; $0$; "(left-absorption)"];
+] end}
+
+Semi-rings can be used to model non-deterministic computations with product playing the role of sequencing computations and sum that of non-deterministic choice. Such use can be exemplified by Kleene algebra or Pratt's action algebra~{cite"Pratt1991"}.
+
+True non-deterministic computations are hard to come by. I will not be realistic to expect that the tactic combinators will adhere to all of these laws. We shall, therefore, call {emph"action monoids"} any pair of monoids on a type which may or may not respect some or all of the commutativity and distributivity laws. And we shall make tactic combinators into such action monoids.
+
+(* arnaud: une phrase plus longue ici, ne serait-ce que pour ne pas faire une ligne unique en d'ebut de paragraphe. *)
+Let us begin with the following simple implementation:
+{quote begin
+"<#type tactic = state -> state
+
+let nop x = x
+let (<*>) a b x = b (a x)
+
+let fail _ = failwith"Tactic failure"
+let (||) a b x = try a x with _ -> b x#>"
+end}
+This implementation validates the associativity laws, as required, it also validates the left absorption law:
+{displaymath $"<#fail <*> a#>"="<#fail#>"$}
+If we assume, in addition, that tactics cannot have global effects (such as writing a file, or incrementing a counter) the right distributivity and absorption rules also hold
+{displaymath begin array [`L;`L] [
+  array_line[$"<#a<*>(b||c)#>"="<#(a<*>b)||(a<*>c)#>"$; "(if <#a#> is pure)"];
+  array_line[$"<#a<*>0#>"="<#0#>"$; "(if <#a#> is pure)"];
+]end}
+Purity of tactic is not necessarily a good assumption to make, as may prevent useful strategies. This article is written making the opposite assumption that global effects are important.
+
+However, neither left distributivity nor commutativity hold in general. So much is reasonably clear from the code, but these two laws have good computational interpretation. Left distributivity means that addition (<#(||)#> in the ocaml implementation) inserts backtracking points:
+<#(a||b)<*>c = (a<*>c)||(b<*>c)#> can be read as stating that ``if <#a#> is selected and continuing with <#c#> fails, then backtrack and run <#b#> then continue with <#c#>''. Adding commutativity on top of left distributivity makes the choice between <#a#> and <#b#> truly non-deterministic (which is, as it happens, incompatible with global effects).
+
+{subsection"Backtracking"}
+
+I want to argue that backtracking choice is a fundamental primitive of proof search. Whether to guess which side of a disjunction to prove in a focused system~{cite"Liang2009"} or to perform some higher-order unification~{cite"Huet1976"}, automated proof procedure tend to have to make choices about which they may need to change their mind later on. It is, therefore, useful to distribute components ({emph"i.e."} deduction rule) which can contain such backtracking decisions.
+
+Following on this premise, let us now turn to implementing tactics which support such a backtracking primitive~--~which we will call <#(<+>)#> to distinguish it from the non-backtracking <#(||)#>. Clearly, where <#(||)#> corresponds to the exception mechanism of the underlying {textsc"ml"} language, <#(<+>)#> could correspond to a backtracking mechanism. But instead of assuming such a mechanism which is not provided in typical programming languages, we will prefer altering the type of tactics to support <#(<+>)#> in a typical language.
+
+As a first attempt, let us consider again the one property which differentiates <#(<+>)#> from <#(||)#>:
+{displaymath "<#(a<+>b)<*>c = (a<*>c)<+>(b<*>c)#>"}
+In other word: as long as it is not followed by a <#c#>, <#a<+>b#> behaves like <#a||b#>, when it is followed by some <#c#>, then <#a<+>b#> has the same behaviour as bringing <#c#> in its scope. We can take that as a definition: if the tactics are in continuation passing style, <#(<+>)#> can be defined as an exception catching construction which captures its continuation. This would, incidentally, be the manner in which backtracking component would be presented in a system with just <#(||)#> was available.
+(* arnaud: expliquer *)
+{quote begin
+"<#type tactic = state -> (state->state) -> state
+
+let nop x k = k x
+let (<*>) a b x k = a x (fun y -> b y k)
+
+let fail _ _ = failwith"Tactic failure"
+let (<+>) a b x k = try a x k with _ -> b x k#>"
+end}
+
+This implementation has the benefit of simplicity and leverages the, presumably efficient, exception mechanism of the underlying programming language. On the other hand, it does not support much control over the backtracking behaviour.
+
+The simplest kind of control primitive is <#once#>: the <#once a#> tactic behaves just as <#a#> but prevents subsequent tactics to backtrack into <#a#>. That is, <#once a#> cuts off all the backtracking points of <#a#>. It can be implemented as follows:
+{quote"<#let once a x k = k (a x (fun y->y))#>"}
+so that the continuation <#k#> cannot be captured by internal calls <#(+)#>.
+
+More complex control primitives, however, such as the non-backtracking choice <#(||)#> become impossible. To coexist with the backtracking <#(+)#>, the non-backtracking <#(||)#> must be slightly redefined:
+
+{subsection"Monadic interface" ~label:s_implem}
 "
 
-let goals = "{section"Goalwise tactics" ~label:s_goals}"
+let goals = "{section"Goal-wise tactics" ~label:s_goals}"
 
 let d = concat [
   intro;

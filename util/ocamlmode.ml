@@ -40,6 +40,7 @@ let symbols = [
   "::", texttt(text":"^^hspace_ (`Em (-0.25))^^text":");
   "<*>", otimes;
   "</>", oslash;
+  "<+>", oplus;
   "*" , times;
   "!" , texttt(text"!"^^hspace_ (`Em (-0.15)));
 ]
