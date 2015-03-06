@@ -17,7 +17,7 @@ let intro = "{emph"intro here"}"
 
 let milner = "{section"Milner's tactics"}
 
-The interactive proof system which originally introduced the notion of tactic was {textsc"lcf"}~{cite"GordonMilner1979"} developed at the university of Edinburgh and, even though it has multiple authors, generally associated with Robin Milner's name. Tactics were, in fact, the main motivation for the introduction of the {textsc"ml"} language~{cite"Gordon1978"} (whose name stands for the initials of {emph"meta-language"}). The {textsc"ml"} language was used to reason about the logic {textsc"lcf"} (a logic dubbed PP$_{lambda}$), and the type of tactic is central in the design:(* arnaud: make it clear que ml a 'et'e con,cu pour ,ca *)
+The interactive proof system which originally introduced the notion of tactic was {textsc"lcf"}~{cite"GordonMilner1979"} developed at the university of Edinburgh and, even though it has multiple authors, generally associated with Robin Milner's name. Tactics were, in fact, the main motivation for the introduction of the {textsc"ml"} language~{cite"Gordon1978"} (whose name stands for the initials of {emph"meta-language"}). The {textsc"ml"} language was used to reason about the logic of {textsc"lcf"} (a logic dubbed PP$_{lambda}$), and the type of tactic is central in the design:(* arnaud: make it clear que ml a 'et'e con,cu pour ,ca *)
 {quote (array[`L;`C;`L] [
   array_line["<#type proof#>" ; "<#=#>"; "<#thm list -> thm#>"];
   array_line["<#type tactic#>"; "<#=#>"; "<#goal -> (goal list * proof)#>"];
@@ -68,9 +68,7 @@ Here is the full implementation:(* arnaud: 'ecrire les fonctions avec du pattern
   type proof = thm list -> thm
   type tactic = goal -> (goal list * proof)
 
-  let id_proof g = function
-    | []  -> g
-    | _ -> failwith "Incorrect use of id rule"
+  let id_proof g [] = g
   let id (gamma,c) =
     if List.mem c gamma then ([] , id_proof (gamma,c))
     else failwith "Not an assumption"
@@ -89,24 +87,21 @@ Here is the full implementation:(* arnaud: 'ecrire les fonctions avec du pattern
       List.iteri (fun j a -> r := a::!r ; if j=i-1 then r := x::!r) l;
       List.rev !r
 
-  let weak_proof a [(gamma,b)] =
-    (add i a gamma , b)
-  let weak n (gamma,a) =
-    let (Some b,gamma') = remove i gamma in
-    ( (gamma',c) , weak_proof b )
+  let weak_proof i a [(gamma,b)] = ( add i a gamma , b )
+  let weak i (gamma,a) =
+    match remove i gamma with
+    | (Some b,gamma') -> ( [(gamma',a)] , weak_proof i b )
+    | _ -> failwith"Not a hypothesis"
 
-  let intro_proof = function
-    | [(a::gamma,b)] -> (gamma,Impl(a,b))
-    | _ -> failwith "Incorrect use of the intro rule"
+  let intro_proof [(a::gamma,b)] = ( gamma , Impl(a,b) )
   let intro = function
     | (gamma,Impl(a,b)) -> ([(a::gamma,b)] , intro_proof)
     | _ -> failwith "Not an implication"
 
   let elim_proof = function
-    | [(gamma,Impl(a,b));(gamma,a')] when a=a' -> (gamma,b)
-    | _ -> failwith "Incorrect use of the application rule"
+    | [(gamma,Impl(a,b));(gamma',a')] when a=a' && gamma=gamma' -> (gamma,b)
   let elim a (gamma,b) =
-    ([(gamma,Impl(a,b));(gamma,a)] , elim_proof]
+    ( [(gamma,Impl(a,b));(gamma,a)] , elim_proof )
 end#>"
 }
 
@@ -114,11 +109,11 @@ end#>"
 The three rules of the logic are reflected as three tactics. Tactics are not, however, restricted to the basic rules of the logics: they can be combined into tactics which apply several rules, or even that apply different rules dependending on the goal. Hence tactics correspond to partial proofs in minimal logic. A tactic <#t#> such that <#t g#> yields an empty list of subgoals is, therefore a proof of <#g#>. This is true, at least, when <#snd (t g) []#> succeeds and return a theorem for <#g#>. The validation step of <#t g#> could fail in two ways: the tactics can be manipulated to return a theorem for another goal, or validations could be combined improperly and fail.
 
 To make sure the tactics we build are correct, we can build them out of sound combinators called {emph"tacticals"}:(* arnaud: expliquer leur r^ole, tclTHEN n'est pas termin'e. tclTHENLIST n'est pas commenc'e*)
-{quote"<#module Tacticals : sig
+{quote"<#module Tactical : sig
   val nop : tactic
   val (<*>) : tactic -> tactic -> tactic
 
-  val (</>) : tactic -> tactic -> tactic
+  val (</>) : tactic -> tactic list -> tactic
 
   val fail : tactic
   val (||) : tactic -> tactic -> tactic
@@ -126,13 +121,11 @@ To make sure the tactics we build are correct, we can build them out of sound co
   val ttry : tactic -> tactic
   val repeat : tactic -> tactic
 end#>"}
-{quote"<#module Tacticals = struct
-  let nop_proof = function
-    | [thm] -> thm
-    | _ -> failwith "Incorrect use of the nop tactical"
+{quote"<#module Tactical = struct
+  let nop_proof [thm] = thm
   let nop g = ([g] , nop_proof)
 
-  let (</>) t2 tl g =
+  let (</>) t1 tl g =
     ...
 
   let (<*>) t1 t2 g =
@@ -149,7 +142,7 @@ end#>"}
 
   let ttry t = t || nop
 
-  let repeat t g =
+  let rec repeat t g =
     match
       try Some (t g)
       with _ -> None
@@ -195,6 +188,7 @@ Compound tactics need not solve the goal, however. We can, for instance, impleme
   ]
 
 end}
+(* arnaud: les premisses de left2 sont `a l'envers *)
 whose respective proofs are
 {displaymath begin
   let id = Infer.rule [] ~label:"(id)" in
@@ -254,30 +248,33 @@ Since these rules are applied to hypotheses of distinct shapes (the ``argument''
 {quote
 "<#let push n (gamma,_) =
   let Impl(a,b) = List.nth gamma n in
-  elim b </> [intro<*>weak (n+1);elim a</>[id;id]]
+  (elim b </> [intro<*>weak (n+1);elim a</>[id;id]]) (gamma,c)
 
-let left n (gamma,_) =
+let left n (gamma,c) =
   match List.nth gamma n with
-  | Impl(Atom _,_) -> push n
+  | Impl(Atom _,_) -> push n (gamma,c)
   | Impl(Impl(a,b),c) ->
-      elim (Impl(a,b)) </> [
-        intro<*>apply (n+1)<*>weak 0;
-        elim (Impl(b,c)) </> [
-          intro<*>weak(n+1);
-          intro<*>elim (Impl(a,b))</>[id;intro<*>id]
+      begin
+        elim (Impl(a,b)) </> [
+          intro<*>push (n+1)<*>weak 0;
+          elim (Impl(b,c)) </> [
+            intro<*>weak(n+1);
+            intro<*>elim (Impl(a,b))</>[id;intro<*>id]
+          ]
         ]
-      ]#>"
+      end (gamma,c)#>"
 }
 
 So far, we have used only sequencing tacticals because we knew the (partial) proofs we wanted to encode. But the strength of tacticals is to be able to define proof search strategies using the control tacticals. Using the right and left introduction rules for implication (and the identity rule) we can write a simple decision procedure for minimal propositional logic (<#tauto#> is $eta$-expanded to ensure that recursion is well-defined)):
 {quote
-"<#let rec tauto g =
+"<#let rec tauto (gamma,c) =
   let simplify = repeat (id||intro) in
-  let all_left = List.mapi (fun i _ -> left i<*>tauto) l in
-  let decide = List.fold_right (fun a t -> a||t) all_left (fail"Unprovable") in
-  (simplify<*>decide) g
+  let all_left = List.mapi (fun i _ -> left i<*>tauto) gamma in
+  let decide = List.fold_right (fun a t -> a||t) all_left fail in
+  (simplify<*>decide) (gamma,c)
   #>"
 }
+(* arnaud: remarque: tauto utilise le type concret aussi pour pouvoir ^etre r'ecursif *)
 
 (* arnaud: parler des compilos de Plotkin, des lenses, de Dialectica/dePaiva *)
 (* arnaud: parler des propri'et'es alg'ebriques? *)
@@ -326,7 +323,7 @@ Doing so, however, loses an important property of Milner-style tacticals: namely
 
 let monad = "{section"Combining interface"}
 
-The shortcomings of the stateful version of Milner's tactic suggests that instead of focusing first on solving goals, we should first concentrate on how tactics compose and return later (in Section~{ref_ s_goals}) to goals. This section will, hence, be dedicated to tactic composition. Similar thoughts to those were instrumental in the making of the Isabelle proof assistant~{cite"Paulson1990"} and the Matita proof assistant~{cite"Asperti2009"}.
+The shortcomings of the stateful version of Milner's tactic suggests that instead of focusing first on solving goals, we should first concentrate on how tactics compose and return later (in Section~{ref_ s_goals}) to goals. This section will, hence, be dedicated to tactic composition. Similar thoughts to those were instrumental in the making of the Isabelle~{cite"Paulson1990"} and Matita~{cite"Asperti2009"} proof assistants.
 
 The starting point of this section is the combination of two insights. The first one is that there are no particular reason for tactics to manipulate goals one at a time. The case for taking all of the available goals rather than a single one is made quite convincingly by~{cite"Asperti2009"}:
 {quote"[C]onsider two goals generated by a transitivity law:
@@ -405,16 +402,16 @@ If we assume, in addition, that tactics cannot have global effects (such as writ
   array_line[$"<#a<*>(b||c)#>"="<#(a<*>b)||(a<*>c)#>"$; "(if <#a#> is pure)"];
   array_line[$"<#a<*>0#>"="<#0#>"$; "(if <#a#> is pure)"];
 ]end}
-Purity of tactic is not necessarily a good assumption to make, as may prevent useful strategies. This article is written making the opposite assumption that global effects are important.
+Purity of tactic is not necessarily a good assumption to make, as may prevent useful strategies. This article is written making the opposite assumption that global effects matter.
 
 However, neither left distributivity nor commutativity hold in general. So much is reasonably clear from the code, but these two laws have good computational interpretation. Left distributivity means that addition (<#(||)#> in the ocaml implementation) inserts backtracking points:
 <#(a||b)<*>c = (a<*>c)||(b<*>c)#> can be read as stating that ``if <#a#> is selected and continuing with <#c#> fails, then backtrack and run <#b#> then continue with <#c#>''. Adding commutativity on top of left distributivity makes the choice between <#a#> and <#b#> truly non-deterministic (which is, as it happens, incompatible with global effects).
 
 {subsection"Backtracking"}
 
-I want to argue that backtracking choice is a fundamental primitive of proof search. Whether to guess which side of a disjunction to prove in a focused system~{cite"Liang2009"} or to perform some higher-order unification~{cite"Huet1976"}, automated proof procedure tend to have to make choices about which they may need to change their mind later on. It is, therefore, useful to distribute components ({emph"i.e."} deduction rule) which can contain such backtracking decisions.
+Backtracking choice is a fundamental primitive of proof search. Whether to guess which side of a disjunction to prove in a focused system~{cite"Liang2009"} or to perform some higher-order unification~{cite"Huet1976"}, automated proof procedure tend to have to make choices about which they may need to change their mind later on. It is, therefore, useful to distribute components ({emph"i.e."} deduction rule) which can contain such backtracking decisions.
 
-Following on this premise, let us now turn to implementing tactics which support such a backtracking primitive~--~which we will call <#(<+>)#> to distinguish it from the non-backtracking <#(||)#>. Clearly, where <#(||)#> corresponds to the exception mechanism of the underlying {textsc"ml"} language, <#(<+>)#> could correspond to a backtracking mechanism. But instead of assuming such a mechanism which is not provided in typical programming languages, we will prefer altering the type of tactics to support <#(<+>)#> in a typical language.
+Following on this premise, let us now turn to implementing tactics which support such a backtracking primitive~--~which we will call <#(<+>)#> to distinguish it from the non-backtracking <#(||)#>. Certainly, just like <#(||)#> can be implemented in terms of to the exception mechanism of the underlying {textsc"ml"} language, <#(<+>)#> could correspond to a backtracking mechanism in an hypothetical underlying language. But rather than assuming such a mechanism which is not provided in typical programming languages, we will prefer altering the type of tactics to support <#(<+>)#> in an {textsc"ml"}-family language.
 
 As a first attempt, let us consider again the one property which differentiates <#(<+>)#> from <#(||)#>:
 {displaymath "<#(a<+>b)<*>c = (a<*>c)<+>(b<*>c)#>"}
@@ -436,7 +433,9 @@ The simplest kind of control primitive is <#once#>: the <#once a#> tactic behave
 {quote"<#let once a x k = k (a x (fun y->y))#>"}
 so that the continuation <#k#> cannot be captured by internal calls <#(+)#>.
 
-More complex control primitives, however, such as the non-backtracking choice <#(||)#> become impossible. To coexist with the backtracking <#(+)#>, the non-backtracking <#(||)#> must be slightly redefined:
+More complex control primitives, however, such as the non-backtracking choice <#(||)#> become impossible. To coexist with the backtracking <#(+)#>, the non-backtracking <#(||)#> must be slightly redefined: if there is at least once successful choice in <#a#>, then <#a||b=a#> otherwise <#a||b#> acts like <#b#> (after running all underlying effects until <#a#> fails). Intuitively, <#(||)#> handles failures like exceptions. So an interface with both kind of error handling would be more expressive than one based purely on expression, hence, barring potential efficiency issue, preferable.
+
+(* arnaud: list, impredicative encoding of lists *)
 
 {subsection"Monadic interface" ~label:s_implem}
 "
