@@ -1,0 +1,10 @@
+#emacs
+*~
+.#*
+*#
+
+# ocamlbuild
+_build
+
+# logging
+melt.log
