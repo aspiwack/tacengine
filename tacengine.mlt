@@ -13,7 +13,7 @@ let s_implem = label ~name:\"s:implem\" ()
 
 (*/labels *)
 
-let intro = "{emph"intro here"}"
+let intro = ""
 
 let milner = "{section"Milner's tactics"}
 
