@@ -199,13 +199,6 @@ let _ = dispatch begin function
 	end;
 
           (*** Libs ***)
-      let mlpostdir = ocamlfind_query "mlpost" in
-      ocaml_lib ~extern:true
-	~tag_name:"use_mlpost"
-	~dir:mlpostdir
-	"mlpost" ;
-
-
       let meltdir = ocamlfind_query "melt" in
       ocaml_lib ~extern:true
 	~tag_name:"use_melt"
